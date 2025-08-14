@@ -1,38 +1,76 @@
+// routes/builds.js
 const express = require("express");
-const router = express.Router();
+const mongoose = require("mongoose");
 const Build = require("../models/Build");
+const requireAdmin = require("../middleware/requireAdmin");
 
-// Save a new build
+const router = express.Router();
+
+/**
+ * Save a new build
+ * Body: { cpu, motherboard, gpu, ram, psu, storage, cooler, case/pcCase, price }
+ */
 router.post("/save", async (req, res) => {
   try {
-    const build = new Build(req.body);
+    // Normalize "case" key (frontend sometimes sends pcCase)
+    const payload = { ...req.body };
+    if (!payload.case && payload.pcCase) payload.case = payload.pcCase;
+
+    const build = new Build(payload);
     await build.save();
-    res.status(201).json({ success: true, message: "Build saved" });
+    return res
+      .status(201)
+      .json({ success: true, message: "Build saved", id: build._id });
   } catch (err) {
-    res.status(500).json({ error: "Failed to save build" });
+    console.error("Save error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to save build" });
   }
 });
 
-// Get all builds
+/**
+ * Get all builds (newest first)
+ */
 router.get("/all", async (req, res) => {
   try {
     const builds = await Build.find().sort({ createdAt: -1 });
-    res.json(builds);
+    return res.json(builds);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch builds" });
+    console.error("Fetch error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch builds" });
   }
 });
 
-// Delete a build by ID
-router.delete("/delete/:id", async (req, res) => {
+/**
+ * Delete a build by id (admin only)
+ */
+router.delete("/delete/:id", requireAdmin, async (req, res) => {
   try {
-    const result = await Build.findByIdAndDelete(req.params.id);
-    if (!result) {
-      return res.status(404).json({ error: "Build not found" });
+    const { id } = req.params;
+    console.log("[DELETE] /api/builds/delete", id);
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, error: "Invalid ID" });
     }
-    res.json({ success: true, message: "Build deleted" });
+
+    const result = await Build.findByIdAndDelete(id);
+    if (!result) {
+      return res.status(404).json({ success: false, error: "Build not found" });
+    }
+
+    // Sanity check
+    const stillThere = await Build.findById(id);
+    console.log(" -> stillThere:", !!stillThere);
+
+    return res.json({ success: true, message: "Build deleted" });
   } catch (err) {
-    res.status(500).json({ error: "Failed to delete build" });
+    console.error("Delete error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to delete build" });
   }
 });
 
